@@ -7,6 +7,8 @@ from math import tan
 
 class vec4(object):
 
+    __slots__ = ('data', )
+
     def __init__(self, x, y, z, w):
         self.data = (x, y, z, w)
 
@@ -15,6 +17,8 @@ class vec4(object):
 
 
 class vec3(object):
+
+    __slots__ = ('data', )
 
     def __init__(self, x, y, z):
         self.data = (x, y, z)

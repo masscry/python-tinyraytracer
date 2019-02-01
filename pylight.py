@@ -9,11 +9,11 @@ from math import floor
 from math import atan2
 from math import acos
 from sys import float_info
+from sys import exit
 from struct import pack
 from struct import unpack
 
 MAX_FLOAT = float_info.max
-
 
 def load_image(filename):
     result = []
@@ -41,12 +41,16 @@ def load_image(filename):
 
 class Light(object):
 
+    __slots__ = ('position', 'intensity')
+
     def __init__(self, pos, intensity):
         self.position = pos
         self.intensity = intensity
 
 
 class Material(object):
+
+    __slots__ = ('refractive_index', 'albedo', 'diffuse_color', 'specular_exponent')
 
     def __init__(self,
                  refractive_index=1.0,
@@ -74,7 +78,7 @@ class Sphere(object):
         d2 = L*L - tca*tca
 
         if d2 > self.radius*self.radius:
-            return False, None
+            return False, None, None, None
 
         thc = sqrt(self.radius*self.radius - d2)
         t0 = tca - thc
@@ -82,11 +86,126 @@ class Sphere(object):
 
         if t0 < 0.0:
             t0 = t1
-        
-        if t0 < 0.0:
-            return False, t0
 
-        return True, t0
+        hit = orig + dir*t0
+        N = (hit - self.center).normalize()
+
+        if t0 < 0.0:
+            return False, t0, hit, N
+
+        return True, t0, hit, N
+
+class Mesh(object):
+
+    __slots__ = ('triangles', 'material', 'bbox')
+
+    def __init__(self, filename, material):
+
+        self.triangles = []
+        self.material = material
+
+        verts = []
+
+        with open(filename, 'r') as inpf:
+
+            for line in inpf:
+
+                line = line.strip()
+                if line == '':
+                    break
+
+                items = line.split()
+
+                if items[0] == 'v':
+                    verts.append(vec3(float(items[1]), float(items[2]), float(items[3])))
+                elif items[0] == 'f':
+                    self.triangles.append((verts[int(items[1])-1], verts[int(items[2])-1], verts[int(items[3])-1]))
+
+        self.bbox = (verts[0], verts[0])
+
+        for item in verts:
+            minx = min(self.bbox[0][0], item[0])
+            miny = min(self.bbox[0][1], item[1])
+            minz = min(self.bbox[0][2], item[2])
+
+            maxx = max(self.bbox[1][0], item[0])
+            maxy = max(self.bbox[1][1], item[1])
+            maxz = max(self.bbox[1][2], item[2])
+
+            self.bbox = (vec3(minx, miny, minz), vec3(maxx, maxy, maxz))
+
+    def box_intersect(self, orig, dir):
+
+        tmin = (self.bbox[0].x-orig.x)/dir.x
+        tmax = (self.bbox[1].x-orig.x)/dir.x
+
+        if tmin > tmax:
+            tmin, tmax = tmax, tmin
+
+        tymin = (self.bbox[0].y-orig.y)/dir.y
+        tymax = (self.bbox[1].y-orig.y)/dir.y
+
+        if tymin > tymax:
+            tymin, tymax = tymax, tymin
+
+        if (tmin > tymax) or (tymin > tmax):
+            return False
+
+        if tymin > tmin:
+            tmin = tymin
+
+        if tymax < tmax:
+            tmax = tymax
+
+        tzmin = (self.bbox[0].z-orig.z)/dir.z
+        tzmax = (self.bbox[1].z-orig.z)/dir.z
+
+        if tzmin > tzmax:
+            tzmin, tzmax = tzmax, tzmin
+
+        if (tmin > tzmax) or (tzmin > tmax):
+            return False
+
+        if tzmin > tmin:
+            tmin = tzmin
+
+        if tzmax < tmax:
+            tmax = tzmax
+
+        return True
+
+
+    def ray_intersect(self, orig, dir):
+
+        if self.box_intersect(orig, dir):
+
+            for tri in self.triangles:
+
+                v0v1 = tri[1] - tri[0]
+                v0v2 = tri[2] - tri[0]
+
+                pvec = dir.cross(v0v2)
+                det = v0v1 * pvec
+
+                if det < 1.0e-5:
+                    continue
+
+                tvec = orig - tri[0]
+                u = tvec * pvec
+
+                if (u < 0.0) or (u > det):
+                    continue
+
+                qvec = tvec.cross(v0v1)
+                v = dir * qvec
+
+                if (v < 0.0) or (u + v > det):
+                    continue
+
+                t = v0v2 * qvec * (1.0 / det)
+                return t > 1.0e-5, t, orig + dir * t, v0v1.cross(v0v2).normalize(),
+
+        return False, None, None, None
 
 
 def reflect(I, N):
@@ -112,15 +231,14 @@ def scene_intersect(orig, dir, spheres, material):
 
     for item in spheres:
 
-        result, dist_i = item.ray_intersect(orig, dir)
+        result, dist_i, xhit, xN = item.ray_intersect(orig, dir)
 
         if result and dist_i < sphere_dist:
 
             sphere_dist = dist_i
-            hit = orig + dir*dist_i
-
-            N = (hit - item.center).normalize()
             material = item.material
+            hit = xhit
+            N = xN
 
     checkerboard_dist = MAX_FLOAT
 
@@ -263,6 +381,7 @@ if __name__ == '__main__':
     glass = Material(1.5, vec4(0.0, 0.5, 0.1, 0.8), vec3(0.6, 0.7, 0.8), 125.0)
     red_rubber = Material(1.0, vec4(0.9, 0.1, 0.0, 0.0), vec3(0.3, 0.1, 0.1), 10.0)
     mirror = Material(1.0, vec4(0.0, 10.0, 0.8, 0.0), vec3(1.0, 1.0, 1.0), 1425.0)
+    glass2 = Material(1.5, vec4(0.0, 0.5, 0.1, 0.8), vec3(0.6, 0.7, 0.8), 125.0)
 
     img = Image(1024, 768, pi/3.0)
     envimg = load_image('envmap.ppm')
@@ -271,7 +390,8 @@ if __name__ == '__main__':
         Sphere(vec3(-3.0, 0.0, -16.0), 2.0,      ivory),
         Sphere(vec3(-1.0, -1.5, -12.0), 2.0,     glass),
         Sphere(vec3(1.5, -0.5, -18.0), 3.0, red_rubber),
-        Sphere(vec3(7.0, 5.0, -18.0), 4.0,      mirror)
+        Sphere(vec3(7.0, 5.0, -18.0), 4.0,      mirror),
+        Mesh('duck.obj', glass2)
     ]
 
     lights = [
@@ -280,5 +400,9 @@ if __name__ == '__main__':
         Light(vec3(30.0, 20.0, 30.0), 1.7)
     ]
 
-    img.render(a, lights, envimg)
-    img.save('out.ppm')
+    try:
+        img.render(a, lights, envimg)
+        img.save('out.ppm')
+    except KeyboardInterrupt:
+        img.save('out.ppm')
+        exit()
