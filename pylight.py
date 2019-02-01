@@ -5,8 +5,9 @@ from geometry import *
 from math import sqrt
 from math import pi
 from math import tan
-from math import sin
-from math import cos
+from math import floor
+from math import atan2
+from math import acos
 from sys import float_info
 from struct import pack
 from struct import unpack
@@ -139,16 +140,36 @@ def scene_intersect(orig, dir, spheres, material):
     return min(sphere_dist, checkerboard_dist) < 1000.0, hit, N, material
 
 
+def sample2d(image, x, y):
+    x = (x % image[1])
+    y = (y % image[2])
+    return image[0][y*image[1] + x]
+
+
+def bilinear_sample2d(image, x, y):
+
+    xfloor = int(floor(x))
+    yfloor = int(floor(y))
+
+    xrat = x - xfloor
+    yrat = y - yfloor
+
+    return (
+        (sample2d(envimg, xfloor, yfloor) * (1.0 - xrat) + sample2d(envimg, xfloor + 1, yfloor) * xrat) * (1.0 - yrat) +
+        (sample2d(envimg, xfloor, yfloor + 1) * (1.0 - xrat) + sample2d(envimg, xfloor + 1, yfloor + 1) * xrat) * yrat
+    )
+
+
 def envmap(dir, envimg):
 
     norm_dir = dir.normalize()
     env_width = envimg[1]
     env_height = envimg[2]
 
-    x = int((norm_dir.x/2+0.5)*env_width)
-    y = int((-norm_dir.y/2+0.5)*env_height)
+    x = (atan2(norm_dir.z, norm_dir.x)/(2*pi) + 0.5)*env_width
+    y = acos(norm_dir.y)/pi*env_height
 
-    return envimg[0][y*env_width + x]
+    return bilinear_sample2d(envimg, x, y)
 
 
 def cast_ray(orig, dir, spr, lights, envimg, depth = 0):
@@ -243,7 +264,7 @@ if __name__ == '__main__':
     red_rubber = Material(1.0, vec4(0.9, 0.1, 0.0, 0.0), vec3(0.3, 0.1, 0.1), 10.0)
     mirror = Material(1.0, vec4(0.0, 10.0, 0.8, 0.0), vec3(1.0, 1.0, 1.0), 1425.0)
 
-    img = Image(1920, 1080, pi/3.0)
+    img = Image(1024, 768, pi/3.0)
     envimg = load_image('envmap.ppm')
 
     a = [
